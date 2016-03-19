@@ -1,8 +1,10 @@
 #!/bin/bash
 VERSION=0.0.0
 
+ATOMIC_ID=
 CFG_CMDLINE=
 CFG_CROSS=
+CFG_REPO=
 CROSS_ARCH=
 DISTDIR=
 MASTERDIR=
@@ -14,17 +16,18 @@ RCV=`command -v xbps-checkvers 2>/dev/null`
 RCV_F="repo-checkvers.txt"
 TOBUILD=
 _TOBUILD=
-USAGE="Usage: $0 [-a cross-arch] [-CN] [-d|-m|-h dir]"
+USAGE="Usage: $0 [-a cross-arch] [-ACN] [-d|-m|-h dir]"
 
 [ -f $RCV ] || {
 	printf "ERROR: The 'xbps-checkvers' was not found in the PATH.\n"
 	exit 1
 }
 
-while getopts a:Cc:d:Nm:th:v OPT; do
+while getopts a:ACc:d:Nm:th:v OPT; do
 	case "$OPT" in
 	a)
 		CFG_CROSS="-a $OPTARG"
+		XBPS_TARGET_ARCH=$OPTARG
 		case "$OPTARG" in
 			native-*-musl|native-*)
 				unset CFG_CROSS CROSS_ARCH
@@ -37,6 +40,10 @@ while getopts a:Cc:d:Nm:th:v OPT; do
 			armv7-musl|armv7hf-musl) CROSS_ARCH="armv7l-musl";;
 			*) CROSS_ARCH="$OPTARG";;
 		esac
+		;;
+	A)
+		ATOMIC_ID="$(uuidgen)"
+		CFG_REPO="-r $ATOMIC_ID"
 		;;
 	v)
 		printf "xbps-bulk version $VERSION\n"
@@ -89,7 +96,7 @@ shift $(($OPTIND - 1))
 SRCPKGS=$DISTDIR/srcpkgs
 XBPS_SRCPKGDIR=$SRCPKGS
 
-XSC="$DISTDIR/xbps-src $CFG_CROSS $CFG_LOCAL $CFG_OVERLAYFS -L $CFG_CMDLINE -m $MASTERDIR -H $HOSTDIR"
+XSC="$DISTDIR/xbps-src $CFG_REPO $CFG_CROSS $CFG_LOCAL $CFG_OVERLAYFS -L $CFG_CMDLINE -m $MASTERDIR -H $HOSTDIR"
 
 if [ -n "$CFG_CROSS" ]; then
 	export XBPS_TARGET_ARCH=$CROSS_ARCH
@@ -160,6 +167,14 @@ printf "PKGS = $TOBUILD\n"					>> Makefile
 printf "TOBUILD = \$(patsubst %%,tobuild/%%,\$(PKGS))\n"	>> Makefile
 printf "BUILT = \$(patsubst tobuild/%%,built/%%,\$(TOBUILD))\n\n"	>> Makefile
 printf "all: \$(BUILT)\n"					>> Makefile
+if [ "$ATOMIC_ID" ]; then
+	printf "\t@( mv -nv $HOSTDIR/binpkgs/$ATOMIC_ID/*.xbps"	>> Makefile
+	printf " $HOSTDIR/binpkgs 2>/dev/null; true )"		>> Makefile
+	printf " | cut -d \"'\" -f 4"				>> Makefile
+	printf " | XBPS_TARGET_ARCH=$XBPS_TARGET_ARCH"		>> Makefile
+	printf " xargs -r xbps-rindex -a\n"			>> Makefile
+	printf "\t@rm -r $HOSTDIR/binpkgs/$ATOMIC_ID\n"		>> Makefile
+fi
 printf "\t@echo \"[Done]\"\n\n"					>> Makefile
 printf "print_pkgs:\n"						>> Makefile
 printf "\t@echo \$(PKGS)\n\n"					>> Makefile
